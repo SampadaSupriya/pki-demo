@@ -1,0 +1,46 @@
+mkdir work
+cd work
+mkdir Bank_Client_1
+
+cd Bank
+openssl genpkey -algorithm RSA -out b_private.pem
+openssl rsa -pubout -in b_private.pem -out b_public.pem
+ls
+
+cd ..
+cd client_1
+openssl genpkey -algorithm RSA -out c1_private.pem
+openssl rsa -pubout -in c1_private.pem -out c1_pub.pem
+ls
+
+cat > msg.txt
+
+openssl pkeyutl -encrypt -pubin \
+  -in key ../bank/b_public.pem \
+  -in msg.txt -out msg.enc
+ls
+
+cp msg.enc ../bank/ 
+
+openssl pkeyutl -decrypt \
+  -inkey b_private.pem \
+  -in msg.enc -out msg_dec.txt
+
+cat > reply.txt
+
+
+openssl pkeyutl -encrypt -pubin \
+  -in key ../client_1/c1_pub.pem \
+  -in reply.txt -out reply.enc
+
+cp reply.enc ../client_1/
+
+
+
+cd ../client_1
+openssl pkeyutl -decrypt \
+  -inkey c1_private.pem \
+  -in reply.enc -out reply_dec.txt
+ls
+
+

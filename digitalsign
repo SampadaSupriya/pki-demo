@@ -1,0 +1,31 @@
+8. RSA DIGITAL SIGNATURE — SIGN & VERIFY
+-------------------------------------------------
+cd work
+mkdir rsa_sign_verify
+cd rsa_sign_verify
+
+
+openssl genpkey -algorithm RSA -out sign_private.pem
+openssl rsa -pubout -in sign_private.pem -out sign_public.pem
+
+
+cat > file1.txt
+# "Hi I am customer"
+
+
+openssl dgst -sha256 \
+  -sign sign_private.pem \
+  -out file1.sign file1.txt
+
+
+ls
+
+openssl dgst -sha256 \
+  -verify sign_public.pem \
+  -signature file1.sign file1.txt
+
+
+diff file1.sign file1.txt
+# → nodiff (signature is valid)
+
+
