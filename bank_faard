@@ -1,0 +1,30 @@
+mkdir www
+  781  cd www
+  782  mkdir bank
+  784  mkdir cl1
+  787  openssl genpkey -algorithm RSA -out bank/bank_pvt.pem 
+  792  openssl genpkey -algorithm RSA -out cl1/cl1_pvt.pem
+  795  openssl rsa -pubout -in bank/bank_pvt.pem -out bank/bank_pub.pem 
+  798  openssl rsa -pubout -in cl1/cl1_pvt.pem -out cl1/cl1_pub.pem 
+  799  tree
+  800  ls
+  801  echo "msg from client" > cl1/cl1_msg.txt
+  802  echo "msg from bank" > bank/bank_msg.txt
+  806  tree
+  807  openssl pkeyutl -encrypt -pubin -in bank/bank_pub.pem -in cl1/cl1_msg.txt -out cl1/cl1_msg.enc
+  808  openssl pkeyutl -encrypt -pubin -inkey bank/bank_pub.pem -in cl1/cl1_msg.txt -out cl1/cl1_msg.enc
+  809  mv cl1/cl1_msg.enc bank/
+  811  tree
+  812  openssl pkeyutl -decrypt -inkey bank/bank_pvt.pem -in bank/cl1_msg.enc -out bank/cl1_msg.dec 
+  813  tree
+  814  cat bank/cl1_msg.dec 
+  815  ls
+  816  openssl pkeyutl -encrypt -pubin -inkey cl1/cl1_pub.pem -in bank/bank_msg.txt -out bank/bank_msg.enc
+  817  openssl pkeyutl -decrypt -inkey cl1/cl1_pvt.pem -in bank/bank_msg.enc -out bank/bank_msg.dec
+  818  tree
+  820  mv bank/bank_msg.dec cl1/
+  821  tree
+  822  cat bank/bank_msg.dec 
+
+
+
