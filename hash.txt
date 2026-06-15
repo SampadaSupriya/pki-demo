@@ -1,0 +1,20 @@
+# Create message file
+echo "Hello Sam" > hello.txt
+
+# Generate MD5 hash
+md5sum hello.txt
+
+# Generate SHA256 hash
+sha256sum hello.txt
+
+# Generate RSA Private Key
+openssl genpkey -algorithm RSA -out priv.pem
+
+# Extract Public Key from Private Key
+openssl rsa -pubout -in priv.pem -out pub.pem
+
+# Digitally sign the file using Private Key
+openssl dgst -sha256 -sign priv.pem -out hello.sign hello.txt
+
+# Verify the signature using Public Key
+openssl dgst -sha256 -verify pub.pem -signature hello.sign hello.txt
