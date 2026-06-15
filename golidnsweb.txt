@@ -1,0 +1,249 @@
+Secure Site Setup — Full Lab Guide
+Root CA → Sub CA → Website Certificate → Apache HTTPS → DNS (BIND9) → Windows Trust
+PHASE 1: Create Folder Structure
+mkdir PKI
+cd PKI/
+mkdir rootca subca web
+
+cd rootca/
+mkdir certs csr private
+# certs=certificates, csr=certificate signing request, private=private key
+cd ../subca/
+mkdir certs csr private
+cd ../web/
+mkdir certs csr private
+cd ../rootca/
+
+PHASE 2: Create Root CA
+Step 1 — Generate Root CA Private Key
+openssl genrsa -out private/rootCA11.key 2048
+ls private/
+# Output: rootCA11.key
+Step 2 — Create Self-Signed Root CA Certificate
+openssl req -x509 -new -nodes -key private/rootCA11.key -sha256 -days 3650 -out certs/rootCA11.crt
+Enter the following when prompted:
+Country Name (2 letter code) [AU]: IN
+State or Province Name (full name) [Some-State]: MH
+Locality Name (eg, city) []: Pune
+Organization Name (eg, company) [Internet Widgits Pty Ltd]: CDAC
+Organizational Unit Name (eg, section) []: ACTS
+Common Name (e.g. server FQDN or YOUR name) []: rootCA11
+Email Address []: tprasad@gmail.com
+NOTE: Enter all this information — your CA certificate is ready and it's a self-signed certificate.
+
+PHASE 3: Create Sub CA
+Step 1 — Generate Sub CA Private Key
+cd ../subca/
+openssl genrsa -out private/subCA11.key 2048
+ls private/
+# Output: subCA11.key
+Step 2 — Create CSR for Sub CA
+openssl req -new -key private/subCA11.key -out csr/subCA11.csr
+Enter when prompted:
+Country Name: IN
+State: MH
+Locality: Pune
+Organization: CDAC
+Organizational Unit: ACTS
+Common Name: subCA11
+Email: tprasad@gmail.com
+Challenge password: root
+Optional company name: ITISS
+Step 3 — Create Extension File for Sub CA
+nano subca_ext.cnf
+Paste the following into the file:
+basicConstraints=critical,CA:TRUE,pathlen:0
+keyUsage=critical,keyCertSign,cRLSign
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+Save and exit (Ctrl+O, Enter, Ctrl+X)
+Step 4 — Sign Sub CA with Root CA
+openssl x509 -req -in csr/subCA11.csr \
+  -CA ../rootca/certs/rootCA11.crt \
+  -CAkey ../rootca/private/rootCA11.key \
+  -CAcreateserial -out certs/subCA11.crt \
+  -days 1825 -sha256 -extfile subca_ext.cnf
+
+PHASE 4: Create Website Certificate
+Step 1 — Generate Website Private Key
+cd ../web/
+openssl genrsa -out private/boomshakalaka.key 2048
+ls private/
+# Output: boomshakalaka.key
+Step 2 — Create CSR for Website
+openssl req -new -key private/boomshakalaka.key -out csr/boomshakalaka.csr
+Enter when prompted:
+Country Name: IN
+State: MH
+Locality: Pune
+Organization: CDAC
+Organizational Unit: ACTS
+Common Name: www.boomshakalaka.in
+Email: tprasad@gmail.com
+Challenge password: root
+Optional company name: shakalaka boom boom
+Step 3 — Create SSL Extension File for Website
+nano server_ext.cnf
+Paste the following:
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,nonRepudiation,keyEncipherment,keyAgreement
+extendedKeyUsage=serverAuth,clientAuth,emailProtection
+subjectAltName=@alt_names
+
+[alt_names]
+DNS.1= www.boomshakalaka.in
+Save and exit.
+Step 4 — Sign Website Certificate Using Sub CA
+openssl x509 -req -in csr/boomshakalaka.csr \
+  -CA ../subca/certs/subCA11.crt \
+  -CAkey ../subca/private/subCA11.key \
+  -CAcreateserial -out certs/boomshkalaka.crt \
+  -days 365 -sha256 -extfile server_ext.cnf
+Step 5 — Create Full Chain File for Apache/Nginx
+cat certs/boomshkalaka.crt ../subca/certs/subCA11.crt ../rootca/certs/rootCA11.crt > certs/fullchain.crt
+ls certs/
+# Output: boomshkalaka.crt  fullchain.crt
+
+PHASE 5: Configure DNS (BIND9)
+Step 1 — Install BIND9 (if not already installed)
+sudo apt-get update -y; sudo apt-get upgrade -y
+sudo apt install bind9
+sudo apt install dnsutils
+Step 2 — Switch to Root and Go to BIND Directory
+sudo su
+cd /etc/bind/
+Step 3 — Copy and Rename Zone File
+cp db.local db.boomshakalaka.local
+# OR rename an existing file:
+mv db.ccee.com.local db.boomshakalaka.local
+Step 4 — Edit named.conf.local (Add Zone Entry)
+nano named.conf.local
+Add the following zone block:
+zone "boomshakalaka.in" {
+    type master;
+    file "/etc/bind/db.boomshakalaka.local";
+};
+Save and exit.
+Step 5 — Edit Zone File (Forward Zone)
+nano db.boomshakalaka.local
+Set the file content as follows:
+; BIND data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     boomshakalaka.in. root.boomshakalaka.in. (
+                             2         ; Serial
+                        604800         ; Refresh
+                         86400         ; Retry
+                       2419200         ; Expire
+                        604800 )       ; Negative Cache TTL
+;
+@       IN      NS      ns.boomshakalaka.in.
+@       IN      A       192.168.142.142
+@       IN      AAAA    ::1
+ns      IN      A       192.168.142.142
+Save and exit.
+Step 6 — Edit named.conf.options (Set Forwarder)
+nano named.conf.options
+Add/update the forwarders block:
+forwarders {
+    192.168.142.142;
+};
+Save and exit.
+Step 7 — Restart BIND9
+systemctl restart bind9.service
+
+PHASE 6: Configure Apache for HTTPS
+Step 1 — Copy Certificates to ~/certs Folder
+cd ~
+cd certs/
+rm -rf *             # clear old certs if any
+cd -
+
+cp pKI/rootca/certs/rootCA11.crt certs/
+cp pKI/web/certs/fullchain.crt certs/
+cp pKI/web/private/boomshakalaka.key certs/
+
+ls certs/
+# Output: boomshakalaka.key  fullchain.crt  rootCA11.crt
+Step 2 — Go to Apache Sites-Available
+cd /etc/apache2/sites-available/
+ls
+# Rename existing conf if needed:
+mv ccee.com.conf boomshakalaka-ssl.conf
+Step 3 — Edit Virtual Host File
+nano boomshakalaka-ssl.conf
+Set the file content:
+<VirtualHost *:443>
+    ServerName boomshakalaka.in
+    DocumentRoot /var/www/html
+
+    SSLEngine on
+    SSLCertificateFile      /home/pki/certs/fullchain.crt
+    SSLCertificateKeyFile   /home/pki/certs/boomshakalaka.key
+    SSLCACertificateFile    /home/pki/certs/rootCA11.crt
+</VirtualHost>
+Save and exit.
+Step 4 — Enable SSL Module and Site
+a2enmod ssl
+a2ensite boomshakalaka-ssl
+systemctl reload apache2
+systemctl restart apache2
+
+PHASE 7: Windows Client Setup
+Step 1 — Copy Certs from Ubuntu to Windows (WinSCP)
+Use WinSCP to connect to the Ubuntu VM:
+Protocol:   SFTP
+Host:       192.168.142.142
+Port:       22
+Username:   pki
+Password:   (your password)
+Copy the ~/certs/ folder contents to your Windows machine:
+Files to copy:
+  boomshakalaka.key
+  fullchain.crt
+  rootCA11.crt
+Step 2 — Import Root CA Certificate (certmgr)
+Open Run dialog (Win+R) → type: certmgr.msc → OK
+Navigate to: Trusted Root Certification Authorities → Certificates
+Right-click → All Tasks → Import → Browse to rootCA11.crt
+Place in: Trusted Root Certification Authorities → Finish
+Step 3 — Import Personal Certificate
+Navigate to: Personal → Certificates
+Right-click → All Tasks → Import → Browse to fullchain.crt
+Follow import wizard → Finish
+Step 4 — Edit Windows Hosts File
+Open Notepad as Administrator → File → Open:
+C:\Windows\System32\drivers\etc\hosts
+Change file type filter to 'All Files (*.*)' to see the hosts file.
+Add the following line at the end:
+192.168.142.142    www.boomshakalaka.in
+Save and exit.
+Step 5 — Verify in Browser
+Open Chrome/Firefox → https://www.boomshakalaka.in
+Expected: 'Welcome to boomshakalaka.in' with padlock (secure)
+NOTE: Use private/incognito mode if the browser has cached old certificate errors.
+
+QUICK REFERENCE — Command Summary
+
+--- ROOT CA ---
+openssl genrsa -out private/rootCA11.key 2048
+openssl req -x509 -new -nodes -key private/rootCA11.key -sha256 -days 3650 -out certs/rootCA11.crt
+
+--- SUB CA ---
+openssl genrsa -out private/subCA11.key 2048
+openssl req -new -key private/subCA11.key -out csr/subCA11.csr
+openssl x509 -req -in csr/subCA11.csr -CA ../rootca/certs/rootCA11.crt -CAkey ../rootca/private/rootCA11.key -CAcreateserial -out certs/subCA11.crt -days 1825 -sha256 -extfile subca_ext.cnf
+
+--- WEBSITE CERT ---
+openssl genrsa -out private/boomshakalaka.key 2048
+openssl req -new -key private/boomshakalaka.key -out csr/boomshakalaka.csr
+openssl x509 -req -in csr/boomshakalaka.csr -CA ../subca/certs/subCA11.crt -CAkey ../subca/private/subCA11.key -CAcreateserial -out certs/boomshkalaka.crt -days 365 -sha256 -extfile server_ext.cnf
+cat certs/boomshkalaka.crt ../subca/certs/subCA11.crt ../rootca/certs/rootCA11.crt > certs/fullchain.crt
+
+--- APACHE ---
+a2enmod ssl
+a2ensite boomshakalaka-ssl
+systemctl restart apache2
+
+--- DNS ---
+systemctl restart bind9.service
