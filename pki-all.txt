@@ -1,0 +1,905 @@
+﻿OpenSSLclientserver.txt
+
+
+
+
+
+
+create privatekey and certificate
+
+
+>openssl req -newkey rsa:2048 -nodes -keyout server.key -x509 -days 365 -out server.crt
+
+
+start server now
+
+
+>openssl s_server -key server.key -cert server.crt -accept 4433
+
+
+Now on second terminal
+test that server
+
+
+>openssl s_client -connect localhost:4433
+>openssl s_client -connect localhost:4433 -quiet  <--runserver in quiet mode
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+first create rootCA certificate
+
+
+>openssl genpkey -algorithm RSA -out root.key
+>openssl req -new -key root.key -out root.csr
+>openssl x509 -req -in root.csr -signkey root.key -out root.crt -days 3650
+>openssl x509 -in root.crt -text -noout
+
+
+second create subCA certificate
+
+
+>openssl genpkey -algorithm RSA -out sub.key
+>openssl req -new -key sub.key -out sub.csr
+>openssl x509 -req -in sub.csr -CA root.crt -CAkey root.key -CAcreateserial -out sub.crt -days 1825
+>openssl x509 -in sub.crt -text -noout
+
+
+Third create personal certificate
+
+
+>openssl genpkey -algorithm RSA -out server.key
+>openssl req -new -key server.key -out server.csr
+common name:cdac.ac.in
+>openssl x509 -req -in server.csr -CA sub.crt -CAkey sub.key -CAcreateserial -out server.crt -days 365
+>openssl x509 -in server.crt -text -noout
+
+
+now certificates are created lest apply its to the cdac.ac.in site
+
+
+>sudo apt update
+>sudo apt install apache2
+>sudo systemctl status apache2
+>sudo ufw allow 'Apache'
+>sudo a2enmod ssl
+go to this file location and make one file server.conf
+>/etc/apache2/sites-available$ sudo vim server.conf
+
+
+<VirtualHost *:443>
+        ServerName cdac.ac.in
+        DocumentRoot /var/www/server
+
+
+        SSLEngine on
+
+
+        SSLCertificateFile      /home/ubuntu/server.crt
+        SSLCertificateKeyFile   /home/ubuntu/server.key
+        SSLCertificateChainFile /home/ubuntu/sub.crt
+        SSLCACertificateFile    /home/ubuntu/root.crt
+
+
+</VirtualHost>
+
+
+go to this file location now
+>cd ..
+>/etc/apache2$ sudo vim apache2.conf
+
+
+add this line at the end of the file 
+ServerName      cdac.ac.in
+
+
+go to this file now
+>sudo vim /etc/hosts
+
+
+add this line at the end of the file
+127.0.0.1       cdac.ac.in
+
+
+>sudo mkdir -p /var/www/server
+>sudo chown -R www-data:www-data /var/www/server
+>sudo a2ensite server.conf
+>sudo systemctl restart apache2
+>cd /var/www/html
+>sudo vim index.html
+<h1> this isopen certified site</h1>
+>cd ~
+>openssl s_client -connect cdac.ac.in:443 -showcerts
+
+
+you can see certificates which we created
+
+
+or go to the firefox->settings->certificates->Authorities->import
+select root.crt
+[/] Trust this CA to identify websites
+>sudo cp root.crt /usr/local/share/ca-certificates/rootca.crt
+>sudo update-ca-certificates
+open in firefox https://cdac.ac.in
+ advanced->accepts risk->not secure->connection not secure->
+more site info->view certificate
+it will show your certificate here
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+------------------Diffi-Hellman------------------------
+
+
+>openssl genpkey -genparam -algorithm DH -out dhp.pem   <---creating global parameters
+>cat dehp.pem                                           <---Display
+>openssl pkeyparam -in dhp.pem -text                    <---Display in text
+
+
+Each User Generate Keypair
+
+
+>openssl pkey -in dhkey1.pem -text -noout
+>openssl genpkey -paramfile dhp.pem -out dhkey2.pem
+>openssl pkey -in dhkey2.pem -text -noout
+
+
+User Exchange Public Keys
+
+
+>openssl pkey -in dhkey1.pem -pubout -out dhpub1.pem
+>openssl pkey -pubin -in dhpub1.pem -text
+>openssl pkey -in dhkey2.pem -pubout -out dhpub2.pem
+>openssl pkey -pubin -in dhpub2.pem -text
+
+
+Independently Derive share secret/Symmetric Key
+
+
+>openssl pkeyutl -derive -inkey dhkey1.pem -peerkey dhpub2.pem -out secret1.bin
+>openssl pkeyutl -derive -inkey dhkey2.pem -peerkey dhpub1.pem -out secret2.bin 
+
+
+Confirm that the Two secret keys are the same
+
+
+>diff secret1.bin secret2.bin
+
+
+----------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+CSR 
+
+
+
+
+create pravate key and certificate self-signed 
+
+
+>openssl req -new -x509 -days 365 -keyout ca.key -out ca.crt
+
+
+generate a CSR and sign it to create a certificate
+
+
+>openssl req -new -nodes -keyout server.key -out server.csr
+>openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 365
+
+
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+PDF SIGN
+—----------------------------------------
+
+
+
+
+
+
+file->new database->
+certificate->New cetificate->templete CA->Apply Extensions
+->subject->internal name rootCA->
+contry name             IN
+stateOrProvinceName MH
+localityName            Pune
+organizationName    CDAC
+organizationalUnitName ACTS
+commonName                rootCA
+emailAddress         cdac@gmail.com
+->generate a new key-> create->
+extensions->time range->10 year->Apply->
+Advance->ok
+
+
+same for subCA change ony extensions-> time range 5 years
+
+
+Now for anurupkaran -< personal cetificate
+New certificate->template->TLS_server->
+follow same as rootCA dont do extra change.
+extensions->time range default 365 days.
+ 
+export all certificates now
+select rootCA->export->choose location->export
+select subCA->export->choose location->export
+select anurupkaran->export->choose location->choose extension PKCS#12(*pfx)->ok
+
+
+[+] + R ->certmgr.msc-> Trusted root certificatoin->right click on certificate->all tasks->import->
+choose rootCA import
+next then
+Intermediate certifications->right click certificate->all tasks->import->choose subCA->import
+next for personal
+personal->rightclick->all tasks->import->choose anurupkaran->import
+
+
+now your digital dignature is ready lest apply it on pdf
+open Adobe Acrobat->menue->open pdf->view more->use a certificate->Digitally sign->
+select area where you apply signature->choose certificate->sign.
+
+
+
+
+
+
+-------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+================================================================================
+          COMPLETE GUIDE: CUSTOM PKI CREATION AND SSL DEPLOYMENT
+================================================================================
+
+
+--------------------------------------------------------------------------------
+STEP 1: INITIALIZE PROJECT DIRECTORY
+--------------------------------------------------------------------------------
+1. Minimize all windows to view your Desktop.
+2. Right-click on an empty space on the Desktop.
+3. Select "New" -> "Folder".
+4. Name the folder (e.g., CertProject).
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 2: CREATE XCA DATABASE
+--------------------------------------------------------------------------------
+1. Launch the XCA application.
+2. Click on "File" -> "New Database".
+3. Navigate to your Desktop folder (CertProject).
+4. Enter a name for your database (e.g., pki_database) and click "Save".
+5. Enter and confirm a strong password for your database, then click "OK".
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 3: GENERATE PRIVATE KEYS
+--------------------------------------------------------------------------------
+1. Click on the "Private Keys" tab.
+2. Click the "New Key" button on the right panel.
+3. Set the Key name to: rootca
+4. Click "Create" (leave default key properties as-is).
+
+
+5. Click the "New Key" button again.
+6. Set the Key name to: subca
+7. Click "Create".
+
+
+8. Click the "New Key" button a third time.
+9. Set the Key name to: website-key
+10. Click "Create".
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 4: GENERATE ROOT CA CERTIFICATE
+--------------------------------------------------------------------------------
+1. Click on the "Certificates" tab.
+2. Click the "New Certificate" button.
+3. Under the [Source] tab:
+   -- Locate the "Template for the new certificate" dropdown.
+   -- Select "CA" from the menu.
+   -- Click the "Apply template" button.
+4. Under the [Subject] tab:
+   -- Internal name: rootca
+   -- Common Name (CN): rootca
+   -- (Note: Internal name and common name must be identical)
+5. Under the [Extensions] tab:
+   -- Mark the checkboxes for "Key Identifier".
+   -- Click the "Apply" button next to it.
+6. Under the [Key Usage] tab:
+   -- Do nothing; leave default values.
+7. Click "OK" to save and generate the Root CA certificate.
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 5: GENERATE SUB CA CERTIFICATE
+--------------------------------------------------------------------------------
+1. In the "Certificates" tab, click "New Certificate".
+2. Under the [Source] tab:
+   -- In the "Signing" section, select "Use this certificate for signing".
+   -- Select "rootca" from the dropdown menu.
+   -- In the "Template" section, select "CA" from the dropdown.
+   -- Click the "Apply template" button.
+3. Under the [Subject] tab:
+   -- Internal name: subca
+   -- Common Name (CN): subca
+4. Under the [Extensions] tab:
+   -- Set the Time range (Validity) to: 5 years
+   -- Mark the checkboxes for "Key Identifier".
+   -- Click the "Apply" button.
+5. Under the [Key Usage] tab:
+   -- Do nothing; leave default values.
+6. Click "OK" to save and generate the Sub CA certificate.
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 6: GENERATE WEBSITE / SERVER CERTIFICATE
+--------------------------------------------------------------------------------
+1. In the "Certificates" tab, click "New Certificate".
+2. Under the [Source] tab:
+   -- Select "Use this certificate for signing".
+   -- Select "subca" from the dropdown menu.
+   -- In the "Template" section, select "TLS_server" from the dropdown.
+   -- Click the "Apply template" button.
+3. Under the [Subject] tab:
+   -- Internal name: ://ruturaj.com
+   -- Common Name (CN): ://ruturaj.com
+4. Under the [Extensions] tab:
+   -- Ensure the Type dropdown is set to "End Entity".
+   -- Set the Time range (Validity) to: 365 days
+   -- Click the "Apply" button next to the time range.
+   -- Mark the checkboxes for "Key Identifier".
+   -- Click the "Apply" button next to key identifier.
+5. Under the [Key Usage] tab:
+   -- Mark the first checkbox labeled "Critical".
+   -- Ensure "Digital Signature" and "Key Encipherment" are checked.
+   -- In the Extended Key Usage box, select:
+      * TLS Web Server Authentication
+      * TLS Web Client Authentication
+      * Email Protection
+      * Adobe PDF Signing
+6. Click "OK" to save and generate the certificate.
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 7: EXPORT CERTIFICATES AND PRIVATE KEYS
+--------------------------------------------------------------------------------
+1. Go to the "Certificates" tab:
+   -- Select the "rootca" certificate -> Click "Export".
+   -- Browse to your Desktop folder.
+   -- Ensure the export format is set to: PEM (*.crt) -> Click "OK".
+
+
+   -- Select your website certificate (://ruturaj.com) -> Click "Export".
+   -- Browse to your Desktop folder.
+   -- Change the export format to: PEM chain (*.pem) -> Click "OK".
+
+
+2. Go to the "Private Keys" tab:
+   -- Select your domain private key (website-key) -> Click "Export".
+   -- Browse to your Desktop folder.
+   -- Ensure the export format is set to: PEM private (*.pem) -> Click "OK".
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 8: IMPORT WEBSITE CERTIFICATE INTO WINDOWS PERSONAL STORE
+--------------------------------------------------------------------------------
+1. Press the Windows Key + R to open the Run dialogue box.
+2. Type: certmgr.msc and press Enter.
+3. Expand the "Personal" folder in the left hierarchy panel.
+4. Right-click on the "Certificates" folder inside Personal.
+5. Select "All Tasks" -> "Import".
+6. Click "Next" -> Click "Browse".
+7. Navigate to your project folder on the Desktop.
+8. Change the file type dropdown filter (bottom right) to "All Files (*.*)".
+9. Select your domain PEM chain file (e.g., ://ruturaj.com.pem) and click "Open".
+10. Click "Next" -> "Next" -> "Finish".
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 9: IMPORT ROOT CA INTO WINDOWS TRUSTED ROOT STORE
+--------------------------------------------------------------------------------
+1. Inside certmgr.msc, locate and expand "Trusted Root Certification Authorities".
+2. Right-click on the "Certificates" folder inside it.
+3. Select "All Tasks" -> "Import".
+4. Click "Next" -> Click "Browse".
+5. Select the "rootca.crt" file from your Desktop folder.
+6. Click "Next" -> "Next" -> "Finish".
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 10: TRANSFER FILES TO THE VIRTUAL MACHINE (VM)
+--------------------------------------------------------------------------------
+1. Open WinSCP.
+2. Host Name: [Enter your VM IP Address]
+3. Username / Password: [Enter your VM credentials]
+4. Click "Login".
+5. Drag and drop your Desktop certificate folder into your VM user home 
+   directory (e.g., /home/redhat/ or /home/ubuntu/).
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 11: CONFIGURE APACHE SSL VIRTUAL HOST
+--------------------------------------------------------------------------------
+1. Open your VM terminal window.
+2. Check if Apache is installed by running: which apache2
+3. Change directory to sites-available:
+   cd /etc/apache2/sites-available
+
+
+4. Create a new configuration file:
+   sudo nano dummy-ssl.conf
+
+
+5. Copy and paste the following block into the file (Update paths to match your 
+   actual directory structure):
+
+
+<VirtualHost *:443>
+    ServerName      ://ruturaj.com
+    DocumentRoot    /var/www/html
+
+
+    SSLEngine on
+    SSLCertificateFile      /home/redhat/ruturaj/://ruturaj.com.pem
+    SSLCertificateKeyFile   /home/redhat/ruturaj/ruturaj-key.pem
+    SSLCACertificateFile    /home/redhat/ruturaj/rootca.crt
+</VirtualHost>
+
+
+6. Save and exit the text editor (In nano: Ctrl+O, Enter, then Ctrl+X).
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 12: EDIT EXPERIMENTAL WEB CONTENT
+--------------------------------------------------------------------------------
+1. Change directory to the web root:
+   cd /var/www/html
+
+
+2. Open your index file:
+   sudo nano index.html
+
+
+3. Edit the HTML file with your custom content, save, and exit.
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 13: ENABLE MODULES, SITES, AND RESTART SERVICES
+--------------------------------------------------------------------------------
+1. Navigate back to the sites configuration directory:
+   cd /etc/apache2/sites-available
+
+
+2. Enable the SSL module:
+   sudo a2enmod ssl
+
+
+3. Enable your configuration file (omit the .conf extension):
+   sudo a2ensite dummy-ssl
+
+
+4. Edit the local network mapping hosts file inside the VM:
+   sudo nano /etc/hosts
+
+
+5. Add your VM IP address and Domain Name at the end of the file:
+   [Your_VM_IP]    ://ruturaj.com
+
+
+6. Reload or restart the Apache daemon to apply changes:
+   sudo systemctl restart apache2
+   
+   (If no errors are displayed, your server configuration is correct).
+
+
+
+
+--------------------------------------------------------------------------------
+STEP 14: BROWSER TRUST CONFIGURATION
+--------------------------------------------------------------------------------
+1. Open your web browser and go to: https://://ruturaj.com
+2. If an initial warning page shows, click "Advanced" -> "Accept the Risk and 
+   Continue".
+3. To install the Root CA into the browser framework:
+   -- Click the Application Menu (Three horizontal lines / Hamburger icon).
+   -- Open "Settings".
+   -- Search for "Certificates" in the search box -> Click "View Certificates".
+   -- Go to the "Authorities" tab -> Click "Import".
+   -- Choose the "rootca.crt" file from your project folder.
+
+
+—--------------------------------------------------------------------------------------------------------------------
+—----------------------------
+HASH COMPARISON
+—----------------------------
+
+
+
+
+# Create a text file and add content (press Ctrl+D when finished)
+cat > txt
+# (Type your message here, then press Enter and Ctrl+D)
+
+
+# Generate an RSA private key
+openssl genpkey -algorithm RSA -out Pri.pem
+
+
+# Extract the public key from the private key
+openssl pkey -pubout -in Pri.pem -out public.key
+
+
+# Encrypt the file using the public key
+openssl pkeyutl -encrypt -inkey public.key -pubin -in txt -out txt.enc
+
+
+# View the encrypted binary/ciphertext content
+cat txt.enc
+
+
+# Decrypt the file using the private key
+openssl pkeyutl -decrypt -inkey Pri.pem -in txt.enc -out txt.dec
+
+
+# View the decrypted plaintext content
+cat txt.dec
+
+
+# Compare the original file with the decrypted file (should yield no output if identical)
+diff txt txt.dec
+
+
+# Generate and compare SHA256 hashes of the original and encrypted files
+sha256sum txt txt.enc
+—------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+# Create a text file with data
+cat > txt
+# (Type your message here, then press Enter and Ctrl+D)
+
+
+# Generate a SHA256 hash of the file using openssl dgst
+openssl dgst -sha256 -out hash1.sha txt
+
+
+# View the generated hash
+cat hash1.sha
+
+
+# Generate a second hash of the same unaltered file to compare
+openssl dgst -sha256 -out hash2.sha txt
+
+
+# View the second hash
+cat hash2.sha
+
+
+# Compare the two hashes (they will match perfectly if the file wasn't edited)
+diff hash1.sha hash2.sha
+
+
+—-------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+—-------------------------------------
+SSH KEY- TWO MACHINE
+—-------------------------------------
+
+
+
+
+# Generate an SSH key pair using the modern Ed25519 algorithm
+# Press Enter to accept defaults when prompted
+ssh-keygen -t ed25519
+
+
+# Copy your public key to the remote server for passwordless access
+ssh-copy-id itiss@192.168.74.86
+
+
+# Log in to the remote server securely using SSH
+ssh itiss@192.168.74.86
+
+
+—----------------------------------------------------------------------------------------------------------------------------
+—--------------------------------------------
+SYMMETRIC KEY GENERATION
+—--------------------------------------------
+
+
+
+
+# Generate 32 bytes of random data for the 256-bit AES key
+openssl rand -out key 32
+
+
+# Generate 16 bytes of random data for the 128-bit Initialization Vector (IV)
+openssl rand -out inv 16
+
+
+# Display hex representation of the key
+xxd -p key
+
+
+# View raw data of the key
+cat key
+
+
+# Display hex representation of the IV
+xxd -p inv
+
+
+# Encrypt the file using AES-256-CBC
+openssl enc -aes-256-cbc -K $(xxd -p key | tr -d '\n') -iv $(xxd -p inv | tr -d '\n') -in txt -out txt.enc
+
+
+# Decrypt the file using AES-256-CBC
+openssl enc -d -aes-256-cbc -K $(xxd -p key | tr -d '\n') -iv $(xxd -p inv | tr -d '\n') -in txt.enc -out txt.dec
+
+
+# Compare the original file with the encrypted binary file to see the difference
+diff txt txt.enc
+—----------------------------------------------------------------------------------------------------------------------------
+================================================
+  RSA ASYMMETRIC ENCRYPTION — FULL WORKFLOW
+================================================
+
+
+-------------------------------------------------
+1. SETUP DIRECTORY STRUCTURE
+-------------------------------------------------
+mkdir work
+cd work
+mkdir Bank_Client_1
+
+
+-------------------------------------------------
+2. BANK — GENERATE KEY PAIR
+-------------------------------------------------
+cd Bank
+openssl genpkey -algorithm RSA -out b_private.pem
+openssl rsa -pubout -in b_private.pem -out b_public.pem
+ls   # should show 2 keys
+
+
+-------------------------------------------------
+3. CLIENT — GENERATE KEY PAIR
+-------------------------------------------------
+cd ..
+cd client_1
+openssl genpkey -algorithm RSA -out c1_private.pem
+openssl rsa -pubout -in c1_private.pem -out c1_pub.pem
+
+
+-------------------------------------------------
+4. CLIENT ENCRYPTS MESSAGE → SENDS TO BANK
+-------------------------------------------------
+# In work/bank folder
+cat > msg.txt
+# (type your message, press Ctrl+D)
+
+
+openssl pkeyutl -encrypt -pubin \
+  -in key ../bank/b_public.pem \
+  -in msg.txt -out msg.enc
+
+
+ls   # see msg.txt & msg.enc
+
+
+cp msg.enc ../bank/   # Send encrypted message to Bank
+
+
+-------------------------------------------------
+5. BANK DECRYPTS MESSAGE
+-------------------------------------------------
+# In bank folder
+openssl pkeyutl -decrypt \
+  -inkey b_private.pem \
+  -in msg.enc -out msg_dec.txt
+
+
+-------------------------------------------------
+6. BANK REPLIES TO CLIENT
+-------------------------------------------------
+cat > reply.txt
+# (type reply message e.g. "2000")
+
+
+openssl pkeyutl -encrypt -pubin \
+  -in key ../client_1/c1_pub.pem \
+  -in reply.txt -out reply.enc
+
+
+cp reply.enc ../client_1/   # Bank to Client
+
+
+-------------------------------------------------
+7. CLIENT DECRYPTS BANK REPLY
+-------------------------------------------------
+cd ../client_1
+openssl pkeyutl -decrypt \
+  -inkey c1_private.pem \
+  -in reply.enc -out reply_dec.txt
+ls   # Can see reply_dec.txt
+
+
+-------------------------------------------------
+8. RSA DIGITAL SIGNATURE — SIGN & VERIFY
+-------------------------------------------------
+cd work
+mkdir rsa_sign_verify
+cd rsa_sign_verify
+
+
+# Generate signing key pair
+openssl genpkey -algorithm RSA -out sign_private.pem
+openssl rsa -pubout -in sign_private.pem -out sign_public.pem
+
+
+# Create a file to sign
+cat > file1.txt
+# "Hi I am customer"
+
+
+# Sign the file
+openssl dgst -sha256 \
+  -sign sign_private.pem \
+  -out file1.sign file1.txt
+
+
+ls   # private key, public key, file1
+
+
+# Verify the signature
+openssl dgst -sha256 \
+  -verify sign_public.pem \
+  -signature file1.sign file1.txt
+
+
+# Check difference
+diff file1.sign file1.txt
+# → nodiff (signature is valid)
+
+
+================================================
+KEY CONCEPT:
+  Encrypt   → use recipient's PUBLIC key
+  Decrypt   → use recipient's PRIVATE key
+  Sign      → use your PRIVATE key
+  Verify    → use your PUBLIC key
+================================================
+—----------------------------------------------------------------------------------------------------------------------------
+
+
+================================================
+   HASHING & DIGITAL SIGNATURE COMMANDS
+================================================
+
+
+-------------------------------------------------
+1. MD5 HASHING
+-------------------------------------------------
+# Hash a file
+md5sum msg.txt
+
+
+# Verify against saved hash
+md5sum -c msg.md5
+
+
+-------------------------------------------------
+2. SHA256 HASHING
+-------------------------------------------------
+# Hash a file
+sha256sum filename.txt
+
+
+# Verify against saved hash
+sha256sum -c filename.txt
+
+
+-------------------------------------------------
+3. CREATE A SAMPLE FILE
+-------------------------------------------------
+echo "Hello Sam" > hello.txt
+
+
+# Note: Sam requires RSA key
+
+
+-------------------------------------------------
+4. GENERATE RSA KEY PAIR (Created Pub & Priv Key)
+-------------------------------------------------
+# Generate private key
+openssl genpkey -algorithm RSA -out priv.pem
+
+
+# Extract public key from private key
+openssl rsa -pubout -in priv.pem -out pub.pem
+
+
+-------------------------------------------------
+5. DIGITALLY SIGN A FILE
+-------------------------------------------------
+openssl dgst -sha256 \
+  -sign priv.pem \
+  -out hello.sign hello.txt
+
+
+-------------------------------------------------
+6. VERIFY SIGNATURE (Verify Two Files)
+-------------------------------------------------
+openssl dgst -sha256 \
+  -verify pub.pem \
+  -signature hello.sign hello.txt
+
+
+================================================
+SUMMARY:
+  md5sum / sha256sum  → integrity check (hashing)
+  openssl dgst -sign  → digital signature
+  openssl dgst -verify→ signature verification
+  Private key         → used to SIGN
+  Public key          → used to VERIFY
+================================================
