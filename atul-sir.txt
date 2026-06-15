@@ -1,0 +1,341 @@
+PKI Lab — Command Reference
+OpenSSL Commands in Exam-Ready Sequence  |  Atul Kahate Lab Material
+1. Install OpenSSL
+sudo apt update
+sudo apt install openssl
+openssl version           # verify install
+openssl version -a        # full details
+
+2. Symmetric Key Encryption
+Method A — Password as Key (AES-256-CBC)
+openssl enc -aes-256-cbc -in plaintext.txt -out encrypted.txt -pass pass:mysecret
+openssl enc -d -aes-256-cbc -in encrypted.txt -out decrypted.txt -pass pass:mysecret
+Method B — Password with PBKDF2
+openssl enc -aes-256-cbc -pbkdf2 -in plaintext.txt -out encrypted.txt -pass pass:mysecret
+openssl enc -aes-256-cbc -pbkdf2 -d -in encrypted.txt -out decrypted.txt -pass pass:mysecret
+Method C — Random Key File
+openssl rand -out secret.key 32          # 256-bit key
+openssl rand -out iv.bin 16              # 128-bit IV
+xxd -p secret.key                        # view key in hex
+xxd -p iv.bin                            # view IV in hex
+
+# Encrypt
+openssl enc -aes-256-cbc \
+  -in message.txt -out message.txt.enc \
+  -K $(xxd -p secret.key | tr -d '\n') \
+  -iv $(xxd -p iv.bin | tr -d '\n')
+
+# Decrypt
+openssl enc -aes-256-cbc -d \
+  -in message.txt.enc -out decrypted.txt \
+  -K $(xxd -p secret.key | tr -d '\n') \
+  -iv $(xxd -p iv.bin | tr -d '\n')
+Method D — 3DES (Legacy)
+openssl enc -des-ede3-cbc -pbkdf2 -in test.txt -out encrypted_message.txt
+openssl enc -des-ede3-cbc -pbkdf2 -d -in encrypted_message.txt -out decrypted_message.txt
+Method E — Key File with enc
+openssl rand -out secret.key 32
+openssl enc -aes-256-cbc -in plaintext.txt -out encrypted.txt -pass file:secret.key
+openssl enc -d -aes-256-cbc -in encrypted.txt -out decrypted.txt -pass file:secret.key
+
+3. Asymmetric Key Generation (RSA)
+# Generate RSA private key (with AES-256 protection on key file)
+openssl genpkey -algorithm RSA -out private_key.pem -aes256
+
+# Without protection (for servers)
+openssl genpkey -algorithm RSA -out alice.key
+
+# With explicit bit size
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out privkey-A.pem
+
+# Extract public key
+openssl pkey -in private_key.pem -pubout -out public_key.pem
+openssl rsa  -in private_key.pem -pubout -out public_key.pem   # RSA-only alternative
+
+4. Hashing
+# Hash a file and save
+openssl dgst -sha256 -out file1.txt.sha256 file1.txt
+
+# Hash modified file
+openssl dgst -sha256 -out file1-mod.txt.sha256 file1.txt
+
+# Compare hashes
+diff file1.txt.sha256 file1-mod.txt.sha256
+
+# Quick check
+sha256sum plaintext.txt decrypted.txt
+
+5. Digital Signature — RSA
+# Step 1: Generate private key
+openssl genpkey -algorithm RSA -out keyfile.pem -aes256
+
+# Step 2: Derive public key
+openssl rsa -in keyfile.pem -pubout -out public_key.pem
+
+# Step 3: Sign (Sender)
+openssl dgst -sha256 -sign keyfile.pem -out file1.txt.sha256.sig file1.txt
+
+# Step 4: Verify (Receiver)
+openssl dgst -sha256 -verify public_key.pem -signature file1.txt.sha256.sig file1.txt
+
+6. Digital Signature — DSA
+# Step 1: Generate DSA parameters
+openssl dsaparam -out dsaparam.pem 2048
+
+# Step 2: Generate DSA private key
+openssl gendsa -out private_dsa.pem dsaparam.pem
+
+# Step 3: Extract public key
+openssl dsa -in private_dsa.pem -pubout -out public_dsa.pem
+
+# Step 4: Sign
+openssl dgst -sha256 -sign private_dsa.pem -out signature.bin message.txt
+
+# Step 5: Verify
+openssl dgst -sha256 -verify public_dsa.pem -signature signature.bin message.txt
+
+7. Asymmetric Encryption / Decryption
+# Generate Alice's key pair
+openssl genpkey -algorithm RSA -out alice.key
+openssl pkey -pubout -in alice.key -out alice.pub
+
+# Encrypt with Alice's public key
+openssl pkeyutl -encrypt -inkey alice.pub -pubin -in plaintext.txt -out ciphertext.txt
+
+# Decrypt with Alice's private key
+openssl pkeyutl -decrypt -inkey alice.key -in ciphertext.txt -out decrypted.txt
+
+# Verify
+diff plaintext.txt decrypted.txt
+NOTE: Use pkeyutl (generic) instead of older rsautl. Always use -pubin flag when key is a public key file.
+
+8. CSR & Digital Certificates (Alice Example)
+Step 1 — Generate Key Pair
+openssl genpkey -algorithm RSA -out alice.key
+Step 2 — Extract Public Key
+openssl pkey -pubout -in alice.key -out alice.pub
+Step 3 — View Keys
+openssl pkey -in alice.key -text -noout          # private key details
+openssl pkey -pubin -in alice.pub -text -noout   # public key details
+Step 4 — Create CSR
+openssl req -new -key alice.key -out alice.csr
+Step 5a — Create Root CA (Self-Signed)
+openssl genpkey -algorithm RSA -out root.key
+openssl req -new -key root.key -out root.csr
+openssl x509 -req -in root.csr -signkey root.key -out root.crt -days 3650
+openssl x509 -in root.crt -text -noout
+Step 5b — CA Signs Alice's CSR
+openssl x509 -req -in alice.csr \
+  -CA root.crt -CAkey root.key \
+  -CAcreateserial -out alice.crt -days 365
+openssl x509 -in alice.crt -text -noout
+
+9. Root CA → Sub CA → Server Cert (EXAM FLOW)
+Phase 1 — Root CA
+openssl genpkey -algorithm RSA -out root.key
+openssl req -new -key root.key -out root.csr
+openssl x509 -req -in root.csr -signkey root.key -out root.crt -days 3650
+openssl x509 -in root.crt -text -noout
+Phase 2 — Sub CA Extension File (sub.ext)
+Create the file:  nano sub.ext
+basicConstraints=critical,CA:TRUE,pathlen:0
+keyUsage=critical,keyCertSign,cRLSign
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+Phase 2 — Sub CA Certificate
+openssl genpkey -algorithm RSA -out sub.key
+openssl req -new -key sub.key -out sub.csr
+openssl x509 -req -in sub.csr \
+  -CA root.crt -CAkey root.key \
+  -CAcreateserial -out sub.crt -days 1825 -ext sub.ext
+openssl x509 -in sub.crt -text -noout
+Phase 3 — Server Extension File (server.ext)
+Create the file:  nano server.ext
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = cdac.ac.in
+NOTE: Change DNS.1 to match your exam domain (e.g. www.pgditiss.local)
+Phase 3 — Server Certificate (Signed by Sub CA)
+openssl genpkey -algorithm RSA -out server.key
+openssl req -new -key server.key -out server.csr   # CN: cdac.ac.in
+openssl x509 -req -in server.csr \
+  -CA sub.crt -CAkey sub.key \
+  -CAcreateserial -out server.crt -days 365 -ext server.ext
+openssl x509 -in server.crt -text -noout
+Phase 4 — Create Certificate Chain
+cat server.crt sub.crt > fullchain.crt
+
+10. HTTPS with Apache (cdac.ac.in)
+Install Apache & Enable SSL
+sudo apt update
+sudo apt install apache2
+sudo systemctl status apache2
+sudo ufw allow 'Apache'
+sudo a2enmod ssl
+Create SSL Virtual Host Config
+File: /etc/apache2/sites-available/server.conf
+<VirtualHost *:443>
+    ServerName          cdac.ac.in
+    DocumentRoot        /var/www/server
+    SSLEngine           on
+    SSLCertificateFile      /home/atul/testxca/fullchain.crt
+    SSLCertificateKeyFile   /home/atul/testxca/server.key
+</VirtualHost>
+Set Server Name in apache2.conf
+sudo nano /etc/apache2/apache2.conf
+# Add at end:
+ServerName  cdac.ac.in
+Create Document Root
+sudo mkdir -p /var/www/server
+sudo chown -R www-data:www-data /var/www/server
+sudo nano /var/www/server/index.html   # Add: Welcome to DITISS
+DNS / Hosts Entry
+sudo nano /etc/hosts
+# Add at end:
+127.0.0.1   cdac.ac.in
+Enable Site & Restart
+sudo a2ensite server.conf
+sudo systemctl restart apache2
+Trust Root CA in System
+sudo cp root.crt /usr/local/share/ca-certificates/rootca.crt
+sudo update-ca-certificates
+Verify Certificate Chain
+openssl s_client -connect cdac.ac.in:443 -showcerts
+
+11. Diffie-Hellman Key Exchange
+# Step 1: Generate global DH parameters
+openssl genpkey -genparam -algorithm DH -out dhp.pem
+openssl pkeyparam -in dhp.pem -text
+
+# Step 2: Each user generates key pair
+openssl genpkey -paramfile dhp.pem -out dhkey1.pem
+openssl genpkey -paramfile dhp.pem -out dhkey2.pem
+
+# Step 3: Extract public keys
+openssl pkey -in dhkey1.pem -pubout -out dhpub1.pem
+openssl pkey -in dhkey2.pem -pubout -out dhpub2.pem
+
+# Step 4: Derive shared secret
+openssl pkeyutl -derive -inkey dhkey1.pem -peerkey dhpub2.pem -out secret1.bin
+openssl pkeyutl -derive -inkey dhkey2.pem -peerkey dhpub1.pem -out secret2.bin
+
+# Step 5: Confirm they match
+diff secret1.bin secret2.bin
+
+12. SSL Server / Client Test (OpenSSL)
+# Step 1: Generate self-signed key + cert
+openssl req -newkey rsa:2048 -nodes -keyout server.key -x509 -days 365 -out server.crt
+
+# Step 2: Start SSL server (Terminal 1)
+openssl s_server -key server.key -cert server.crt -accept 4433
+
+# Step 3: Connect client (Terminal 2)
+openssl s_client -connect localhost:4433
+openssl s_client -connect localhost:4433 -quiet
+
+13. CRL — Certificate Revocation List
+# Setup CA & server cert
+openssl req -new -x509 -days 365 -keyout ca.key -out ca.crt
+openssl req -new -nodes -keyout server.key -out server.csr
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key \
+  -CAcreateserial -out server.crt -days 365
+
+# Setup CRL directory
+mkdir ~/demoCA && cd ~/demoCA
+touch index.txt
+echo 01 > crlnumber
+cd ..
+
+# Generate initial CRL
+openssl ca -gencrl -out crl.pem -keyfile ca.key -cert ca.crt
+
+# Test certificate (should be valid)
+openssl verify -crl_check -CAfile ca.crt -CRLfile crl.pem server.crt
+
+# Revoke the certificate
+openssl ca -revoke server.crt -keyfile ca.key -cert ca.crt
+
+# Regenerate CRL
+openssl ca -gencrl -out crl.pem -keyfile ca.key -cert ca.crt
+
+# Test again (should show: revoked)
+openssl verify -crl_check -CAfile ca.crt -CRLfile crl.pem server.crt
+
+14. Complete Alice–Bob Example
+Alice — Keys & CSR
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out privkey-A.pem
+openssl pkey -in privkey-A.pem -pubout -out pubkey-A.pem
+openssl req -new -key privkey-A.pem -out A-req.csr
+Root CA — Self-signed & Sign Alice
+openssl req -x509 -new -nodes -key rootkey.pem -sha256 -days 1024 -out root.crt
+openssl x509 -req -in A-req.csr -CA root.crt -CAkey rootkey.pem \
+  -CAcreateserial -out A.crt -days 500 -sha256
+openssl x509 -in A.crt -text -noout
+Bob — Keys & CSR
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out privkey-B.pem
+openssl pkey -in privkey-B.pem -pubout -out pubkey-B.pem
+openssl req -new -key privkey-B.pem -out B-req.csr
+Root CA — Sign Bob
+openssl x509 -req -in B-req.csr -CA root.crt -CAkey rootkey.pem \
+  -CAcreateserial -out B.crt -days 500 -sha256
+openssl x509 -in B.crt -text -noout
+Alice — Verify Bob & Encrypt
+openssl verify -CAfile root.crt B.crt
+openssl x509 -pubkey -in B.crt -noout > pubkey-B-extracted.pem
+openssl pkeyutl -encrypt -in largefile.txt -pubin -inkey pubkey-B-extracted.pem -out ciphertext.bin
+Bob — Decrypt & Verify
+openssl pkeyutl -decrypt -in ciphertext.bin -inkey privkey-B.pem -out decryptedfile.txt
+openssl dgst -sha256 largefile.txt
+openssl dgst -sha256 decryptedfile.txt
+Bank Funds Transfer — Sign + Encrypt
+# Generate key pairs
+openssl genpkey -algorithm RSA -out ach.key -aes256
+openssl rsa -in ach.key -pubout -out ach.pub
+openssl genpkey -algorithm RSA -out bank.key -aes256
+openssl rsa -in bank.key -pubout -out bank.pub
+
+# Encrypt message for bank
+openssl pkeyutl -encrypt -inkey bank.pub -pubin -in ach.txt -out ach_encrypted.txt
+
+# Sign message (integrity + non-repudiation)
+openssl dgst -sha256 -sign ach.key -out ach_signature.bin ach.txt
+
+# Bank decrypts
+openssl pkeyutl -decrypt -inkey bank.key -in ach_encrypted.txt -out ach_decrypted.txt
+
+# Bank verifies signature
+openssl dgst -sha256 -verify ach.pub -signature ach_signature.bin ach.txt
+
+15. Useful Inspection Commands
+# View private key details
+openssl pkey -in private_key.pem -text -noout
+
+# View public key details
+openssl pkey -in private_key.pem -pubout -text -noout
+
+# View certificate
+openssl x509 -in certificate.pem -text -noout
+
+# View CSR
+openssl req -in csr.pem -text -noout
+
+# Verify a certificate against CA
+openssl verify -CAfile ca.crt certificate.pem
+
+# Compare modulus (public key in cert matches private key?)
+openssl x509 -noout -modulus -in certificate.pem | openssl md5
+openssl pkey -noout -modulus -in private_key.pem | openssl md5
+
+# Generate random values
+openssl rand -hex 16
+openssl rand -base64 32
+
+# List available ciphers
+openssl ciphers -v
+
+# Check remote server certificate
+openssl s_client -connect example.com:443
+openssl s_client -connect cdac.ac.in:443 -showcerts
